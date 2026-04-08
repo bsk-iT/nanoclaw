@@ -671,7 +671,7 @@ async function main(): Promise<void> {
               registeredGroups[chatJid]?.folder ?? '',
               'x_results',
             );
-            fs.mkdirSync(resultsDir, { recursive: true });
+            fs.mkdirSync(resultsDir, { recursive: true, mode: 0o777 });
             const result =
               approvalStatus === 'cancelled'
                 ? { success: false, message: 'Post cancelado pelo usuário' }
@@ -680,10 +680,12 @@ async function main(): Promise<void> {
                     message: 'Aprovado',
                     approvedContent: finalContent,
                   };
-            fs.writeFileSync(
-              path.join(resultsDir, `${pending.request_id}.json`),
-              JSON.stringify(result),
+            const resultPath = path.join(
+              resultsDir,
+              `${pending.request_id}.json`,
             );
+            fs.writeFileSync(resultPath, JSON.stringify(result));
+            fs.chmodSync(resultPath, 0o666);
 
             if (approvalStatus === 'cancelled') {
               channel

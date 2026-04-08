@@ -83,11 +83,10 @@ function writeResult(
   result: SkillResult,
 ): void {
   const resultsDir = path.join(dataDir, 'ipc', sourceGroup, 'x_results');
-  fs.mkdirSync(resultsDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(resultsDir, `${requestId}.json`),
-    JSON.stringify(result),
-  );
+  fs.mkdirSync(resultsDir, { recursive: true, mode: 0o777 });
+  const resultPath = path.join(resultsDir, `${requestId}.json`);
+  fs.writeFileSync(resultPath, JSON.stringify(result));
+  fs.chmodSync(resultPath, 0o666);
 }
 
 /**
