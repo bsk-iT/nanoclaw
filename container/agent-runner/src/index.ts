@@ -18,7 +18,7 @@
  *
  * OpenCode invocation:
  *   opencode run --session <id> --format json --dir /workspace/group \
- *     --model github-copilot/claude-sonnet-4-5 "<prompt>"
+ *     --model github-copilot/claude-haiku-4.5 "<prompt>"
  */
 
 import fs from 'fs';
@@ -59,7 +59,8 @@ const OUTPUT_END_MARKER = '---NANOCLAW_OUTPUT_END---';
  * Default model to use via GitHub Copilot.
  * Can be overridden via OPENCODE_MODEL env var.
  */
-const DEFAULT_MODEL = process.env.OPENCODE_MODEL ?? 'github-copilot/claude-sonnet-4-5';
+const DEFAULT_MODEL =
+  process.env.OPENCODE_MODEL ?? 'github-copilot/claude-haiku-4.5';
 
 // ---------------------------------------------------------------------------
 // Logging / output helpers
@@ -83,7 +84,9 @@ async function readStdin(): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
     process.stdin.setEncoding('utf8');
-    process.stdin.on('data', (chunk) => { data += chunk; });
+    process.stdin.on('data', (chunk) => {
+      data += chunk;
+    });
     process.stdin.on('end', () => resolve(data));
     process.stdin.on('error', reject);
   });
@@ -95,7 +98,11 @@ async function readStdin(): Promise<string> {
 
 function shouldClose(): boolean {
   if (fs.existsSync(IPC_INPUT_CLOSE_SENTINEL)) {
-    try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+    try {
+      fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+    } catch {
+      /* ignore */
+    }
     return true;
   }
   return false;
@@ -119,8 +126,14 @@ function drainIpcInput(): string[] {
           messages.push(data.text);
         }
       } catch (err) {
-        log(`Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`);
-        try { fs.unlinkSync(filePath); } catch { /* ignore */ }
+        log(
+          `Failed to process input file ${file}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        try {
+          fs.unlinkSync(filePath);
+        } catch {
+          /* ignore */
+        }
       }
     }
     return messages;
@@ -133,9 +146,15 @@ function drainIpcInput(): string[] {
 function waitForIpcMessage(): Promise<string | null> {
   return new Promise((resolve) => {
     const poll = () => {
-      if (shouldClose()) { resolve(null); return; }
+      if (shouldClose()) {
+        resolve(null);
+        return;
+      }
       const messages = drainIpcInput();
-      if (messages.length > 0) { resolve(messages.join('\n')); return; }
+      if (messages.length > 0) {
+        resolve(messages.join('\n'));
+        return;
+      }
       setTimeout(poll, IPC_POLL_MS);
     };
     poll();
@@ -163,24 +182,23 @@ function parseOpencodeEvents(events: string[]): ParsedMessage[] {
     if (!line.trim()) continue;
     try {
       const ev = JSON.parse(line);
-      // User message echo
-      if (ev.type === 'message' && ev.role === 'user') {
-        const text = typeof ev.content === 'string'
-          ? ev.content
-          : (ev.content ?? []).map((c: { text?: string }) => c.text ?? '').join('');
+      // User message echo — opencode 1.3.17: {type:"user", message:{role:"user",parts:[{type:"text",text:"..."}]}}
+      if (ev.type === 'user' && ev.message?.parts) {
+        const text = (
+          ev.message.parts as Array<{ type: string; text?: string }>
+        )
+          .filter((p) => p.type === 'text')
+          .map((p) => p.text ?? '')
+          .join('');
         if (text) messages.push({ role: 'user', content: text });
       }
-      // Assistant text part
-      if (ev.type === 'message' && ev.role === 'assistant') {
-        const text = typeof ev.content === 'string'
-          ? ev.content
-          : (ev.content ?? [])
-              .filter((c: { type: string }) => c.type === 'text')
-              .map((c: { text: string }) => c.text)
-              .join('');
-        if (text) messages.push({ role: 'assistant', content: text });
+      // Assistant text part — opencode 1.3.17 emits {type:"text", part:{type:"text",text:"..."}}
+      if (ev.type === 'text' && ev.part?.type === 'text' && ev.part?.text) {
+        messages.push({ role: 'assistant', content: ev.part.text });
       }
-    } catch { /* skip non-JSON lines */ }
+    } catch {
+      /* skip non-JSON lines */
+    }
   }
   return messages;
 }
@@ -192,7 +210,13 @@ function formatTranscriptMarkdown(
 ): string {
   const now = new Date();
   const formatDateTime = (d: Date) =>
-    d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true });
+    d.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    });
 
   const lines: string[] = [];
   lines.push(`# ${title || 'Conversation'}`);
@@ -204,7 +228,10 @@ function formatTranscriptMarkdown(
 
   for (const msg of messages) {
     const sender = msg.role === 'user' ? 'User' : assistantName || 'Assistant';
-    const content = msg.content.length > 2000 ? msg.content.slice(0, 2000) + '...' : msg.content;
+    const content =
+      msg.content.length > 2000
+        ? msg.content.slice(0, 2000) + '...'
+        : msg.content;
     lines.push(`**${sender}**: ${content}`);
     lines.push('');
   }
@@ -232,7 +259,9 @@ function archiveConversation(
     fs.writeFileSync(filePath, markdown);
     log(`Archived conversation to ${filePath}`);
   } catch (err) {
-    log(`Failed to archive conversation: ${err instanceof Error ? err.message : String(err)}`);
+    log(
+      `Failed to archive conversation: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -245,6 +274,7 @@ interface QueryResult {
   assistantText: string;
   closedDuringQuery: boolean;
   eventLines: string[];
+  staleSession?: boolean;
 }
 
 /**
@@ -269,7 +299,13 @@ async function runQuery(
   containerInput: ContainerInput,
 ): Promise<QueryResult> {
   // Build opencode CLI args
-  const args: string[] = ['run', '--format', 'json', '--dir', '/workspace/group'];
+  const args: string[] = [
+    'run',
+    '--format',
+    'json',
+    '--dir',
+    '/workspace/group',
+  ];
 
   if (sessionId) {
     args.push('--session', sessionId);
@@ -282,20 +318,32 @@ async function runQuery(
   // We write a temporary opencode config override so the MCP server is registered.
   const opencodeConfigDir = '/home/node/.config/opencode';
   fs.mkdirSync(opencodeConfigDir, { recursive: true });
+  // OpenCode 1.3.17+ changed the MCP config schema:
+  // - mcp.servers.{name} → mcp.{name} (no "servers" wrapper)
+  // - command: string + args: [] → command: string[] (single array)
   const opencodeConfig = {
     model: DEFAULT_MODEL,
     mcp: {
-      servers: {
-        nanoclaw: {
-          command: 'node',
-          args: [mcpServerPath],
-          environment: {
-            NANOCLAW_CHAT_JID: containerInput.chatJid,
-            NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
-            NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
-          },
+      nanoclaw: {
+        type: 'local',
+        command: ['node', mcpServerPath],
+        environment: {
+          NANOCLAW_CHAT_JID: containerInput.chatJid,
+          NANOCLAW_GROUP_FOLDER: containerInput.groupFolder,
+          NANOCLAW_IS_MAIN: containerInput.isMain ? '1' : '0',
         },
       },
+      ...(process.env.FIRECRAWL_API_KEY
+        ? {
+            firecrawl: {
+              type: 'local',
+              command: ['npx', '-y', 'firecrawl-mcp'],
+              environment: {
+                FIRECRAWL_API_KEY: process.env.FIRECRAWL_API_KEY,
+              },
+            },
+          }
+        : {}),
     },
   };
   fs.writeFileSync(
@@ -326,6 +374,7 @@ async function runQuery(
     const eventLines: string[] = [];
     let closedDuringQuery = false;
     let ipcPolling = true;
+    let staleSession = false;
 
     // Poll IPC for _close or new messages during the query
     const pollIpc = () => {
@@ -368,35 +417,48 @@ async function runQuery(
             log(`Session ID: ${newSessionId}`);
           }
 
-          // Accumulate assistant text
-          if (ev.type === 'message' && ev.role === 'assistant') {
-            const text = typeof ev.content === 'string'
-              ? ev.content
-              : (ev.content ?? [])
-                  .filter((c: { type: string }) => c.type === 'text')
-                  .map((c: { text: string }) => c.text)
-                  .join('');
-            if (text) assistantText += (assistantText ? '\n' : '') + text;
+          // Accumulate assistant text — opencode 1.3.17 format: {type:"text", part:{type:"text",text:"..."}}
+          if (ev.type === 'text' && ev.part?.type === 'text' && ev.part?.text) {
+            assistantText += (assistantText ? '\n' : '') + ev.part.text;
           }
-        } catch { /* non-JSON line — log line, skip */ }
+        } catch {
+          /* non-JSON line — log line, skip */
+        }
       }
     });
 
     proc.stderr.on('data', (data: Buffer) => {
       const msg = data.toString().trim();
-      if (msg) log(`[opencode stderr] ${msg}`);
+      if (msg) {
+        log(`[opencode stderr] ${msg}`);
+        // Detect stale session: OpenCode exits 0 but reports session not found
+        if (/session not found/i.test(msg)) {
+          staleSession = true;
+        }
+      }
     });
 
     proc.on('close', (code) => {
       ipcPolling = false;
       log(`opencode exited with code ${code}`);
-      resolve({ newSessionId, assistantText, closedDuringQuery, eventLines });
+      resolve({
+        newSessionId,
+        assistantText,
+        closedDuringQuery,
+        eventLines,
+        staleSession,
+      });
     });
 
     proc.on('error', (err) => {
       ipcPolling = false;
       log(`opencode spawn error: ${err.message}`);
-      resolve({ newSessionId: undefined, assistantText: '', closedDuringQuery: false, eventLines: [] });
+      resolve({
+        newSessionId: undefined,
+        assistantText: '',
+        closedDuringQuery: false,
+        eventLines: [],
+      });
     });
   });
 }
@@ -423,16 +485,24 @@ async function runScript(script: string): Promise<ScriptResult | null> {
       { timeout: SCRIPT_TIMEOUT_MS, maxBuffer: 1024 * 1024, env: process.env },
       (error, stdout, stderr) => {
         if (stderr) log(`Script stderr: ${stderr.slice(0, 500)}`);
-        if (error) { log(`Script error: ${error.message}`); return resolve(null); }
+        if (error) {
+          log(`Script error: ${error.message}`);
+          return resolve(null);
+        }
 
         const lines = stdout.trim().split('\n');
         const lastLine = lines[lines.length - 1];
-        if (!lastLine) { log('Script produced no output'); return resolve(null); }
+        if (!lastLine) {
+          log('Script produced no output');
+          return resolve(null);
+        }
 
         try {
           const result = JSON.parse(lastLine);
           if (typeof result.wakeAgent !== 'boolean') {
-            log(`Script output missing wakeAgent boolean: ${lastLine.slice(0, 200)}`);
+            log(
+              `Script output missing wakeAgent boolean: ${lastLine.slice(0, 200)}`,
+            );
             return resolve(null);
           }
           resolve(result as ScriptResult);
@@ -455,7 +525,11 @@ async function main(): Promise<void> {
   try {
     const stdinData = await readStdin();
     containerInput = JSON.parse(stdinData);
-    try { fs.unlinkSync('/tmp/input.json'); } catch { /* may not exist */ }
+    try {
+      fs.unlinkSync('/tmp/input.json');
+    } catch {
+      /* may not exist */
+    }
     log(`Received input for group: ${containerInput.groupFolder}`);
   } catch (err) {
     writeOutput({
@@ -473,7 +547,11 @@ async function main(): Promise<void> {
   fs.mkdirSync(IPC_INPUT_DIR, { recursive: true });
 
   // Clean up stale _close sentinel from previous container runs
-  try { fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL); } catch { /* ignore */ }
+  try {
+    fs.unlinkSync(IPC_INPUT_CLOSE_SENTINEL);
+  } catch {
+    /* ignore */
+  }
 
   // Build initial prompt
   let prompt = containerInput.prompt;
@@ -493,13 +571,22 @@ async function main(): Promise<void> {
     prompt = `[Global context from AGENTS.md]\n${globalCtx}\n\n---\n\n${prompt}`;
   }
 
+  // Inject X/Twitter persona instructions if available
+  const personaMdPath = '/app/skills/x-twitter/persona.md';
+  if (fs.existsSync(personaMdPath)) {
+    const persona = fs.readFileSync(personaMdPath, 'utf-8');
+    prompt = `[X/Twitter Writing Persona & Instructions]\n${persona}\n\n---\n\n${prompt}`;
+  }
+
   // Script phase: run script before waking agent
   if (containerInput.script && containerInput.isScheduledTask) {
     log('Running task script...');
     const scriptResult = await runScript(containerInput.script);
 
     if (!scriptResult || !scriptResult.wakeAgent) {
-      const reason = scriptResult ? 'wakeAgent=false' : 'script error/no output';
+      const reason = scriptResult
+        ? 'wakeAgent=false'
+        : 'script error/no output';
       log(`Script decided not to wake agent: ${reason}`);
       writeOutput({ status: 'success', result: null });
       return;
@@ -514,10 +601,27 @@ async function main(): Promise<void> {
     while (true) {
       log(`Starting query (session: ${sessionId || 'new'})...`);
 
-      const result = await runQuery(prompt, sessionId, mcpServerPath, containerInput);
+      const result = await runQuery(
+        prompt,
+        sessionId,
+        mcpServerPath,
+        containerInput,
+      );
 
       if (result.newSessionId) {
         sessionId = result.newSessionId;
+      }
+
+      // Stale session: OpenCode reported "Session not found" — signal host to clear it
+      if (result.staleSession) {
+        log('Stale session detected, signalling host to clear');
+        writeOutput({
+          status: 'error',
+          result: null,
+          newSessionId: sessionId,
+          error: 'Session not found — stale session cleared',
+        });
+        return;
       }
 
       // Archive conversation on each completed query turn

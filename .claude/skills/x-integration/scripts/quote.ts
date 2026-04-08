@@ -1,80 +1,53 @@
 #!/usr/bin/env npx tsx
 /**
  * X Integration - Quote Tweet
- * Usage: echo '{"tweetUrl":"https://x.com/user/status/123","comment":"My thoughts"}' | npx tsx quote.ts
+ * Usage: echo '{"tweetId":"1234567890","content":"My take on this"}' | npx tsx quote.ts
+ * Also accepts tweetUrl instead of tweetId.
  */
 
-import { getBrowserContext, navigateToTweet, runScript, validateContent, config, ScriptResult } from '../lib/browser.js';
+import { runScript, validateContent, ScriptResult } from '../lib/browser.js';
+import { apiPost, extractError } from '../lib/api.js';
 
 interface QuoteInput {
-  tweetUrl: string;
-  comment: string;
+  tweetId?: string;
+  tweetUrl?: string;
+  content: string;
+}
+
+function extractIdFromUrl(url: string): string | null {
+  const m = url.match(/\/status\/(\d+)/);
+  return m ? m[1] : null;
 }
 
 async function quoteTweet(input: QuoteInput): Promise<ScriptResult> {
-  const { tweetUrl, comment } = input;
-
-  if (!tweetUrl) {
-    return { success: false, message: 'Please provide a tweet URL' };
+  const tweetId =
+    input.tweetId ?? (input.tweetUrl ? extractIdFromUrl(input.tweetUrl) : null);
+  if (!tweetId) {
+    return { success: false, message: 'Provide tweetId or tweetUrl' };
   }
 
-  const validationError = validateContent(comment, 'Comment');
+  const validationError = validateContent(input.content, 'Quote');
   if (validationError) return validationError;
 
-  let context = null;
-  try {
-    context = await getBrowserContext();
-    const { page, success, error } = await navigateToTweet(context, tweetUrl);
+  const res = await apiPost('/2/tweets', {
+    text: input.content,
+    quote_tweet_id: tweetId,
+  });
 
-    if (!success) {
-      return { success: false, message: error || 'Navigation failed' };
-    }
-
-    // Click retweet button to open menu
-    const tweet = page.locator('article[data-testid="tweet"]').first();
-    const retweetButton = tweet.locator('[data-testid="retweet"]');
-    await retweetButton.waitFor({ timeout: config.timeouts.elementWait });
-    await retweetButton.click();
-    await page.waitForTimeout(config.timeouts.afterClick);
-
-    // Click quote option
-    const quoteOption = page.getByRole('menuitem').filter({ hasText: /Quote/i });
-    await quoteOption.waitFor({ timeout: config.timeouts.elementWait });
-    await quoteOption.click();
-    await page.waitForTimeout(config.timeouts.afterClick * 1.5);
-
-    // Find dialog with aria-modal="true"
-    const dialog = page.locator('[role="dialog"][aria-modal="true"]');
-    await dialog.waitFor({ timeout: config.timeouts.elementWait });
-
-    // Fill comment
-    const quoteInput = dialog.locator('[data-testid="tweetTextarea_0"]');
-    await quoteInput.waitFor({ timeout: config.timeouts.elementWait });
-    await quoteInput.click();
-    await page.waitForTimeout(config.timeouts.afterClick / 2);
-    await quoteInput.fill(comment);
-    await page.waitForTimeout(config.timeouts.afterFill);
-
-    // Click submit button
-    const submitButton = dialog.locator('[data-testid="tweetButton"]');
-    await submitButton.waitFor({ timeout: config.timeouts.elementWait });
-
-    const isDisabled = await submitButton.getAttribute('aria-disabled');
-    if (isDisabled === 'true') {
-      return { success: false, message: 'Submit button disabled. Content may be empty or exceed character limit.' };
-    }
-
-    await submitButton.click();
-    await page.waitForTimeout(config.timeouts.afterSubmit);
-
+  if (res.status === 201) {
+    const d = res.data as { data?: { id?: string } };
+    const id = d?.data?.id ?? 'unknown';
     return {
       success: true,
-      message: `Quote tweet posted: ${comment.slice(0, 50)}${comment.length > 50 ? '...' : ''}`
+      message: `Quote tweet posted (id: ${id})`,
+      data: { tweetId: id },
     };
-
-  } finally {
-    if (context) await context.close();
   }
+
+  return {
+    success: false,
+    message: `Failed to quote tweet (HTTP ${res.status}): ${extractError(res.data)}`,
+  };
 }
 
 runScript<QuoteInput>(quoteTweet);

@@ -1,56 +1,55 @@
 #!/usr/bin/env npx tsx
 /**
  * X Integration - Like Tweet
- * Usage: echo '{"tweetUrl":"https://x.com/user/status/123"}' | npx tsx like.ts
+ * Usage: echo '{"tweetId":"1234567890"}' | npx tsx like.ts
+ * Also accepts tweetUrl instead of tweetId.
  */
 
-import { getBrowserContext, navigateToTweet, runScript, config, ScriptResult } from '../lib/browser.js';
+import { runScript, ScriptResult } from '../lib/browser.js';
+import { apiPost, apiGet, extractError } from '../lib/api.js';
 
 interface LikeInput {
-  tweetUrl: string;
+  tweetId?: string;
+  tweetUrl?: string;
+}
+
+function extractIdFromUrl(url: string): string | null {
+  const m = url.match(/\/status\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+async function getUserId(): Promise<string> {
+  const res = await apiGet('/2/users/me');
+  if (res.status !== 200)
+    throw new Error(`Could not fetch user id: ${extractError(res.data)}`);
+  const d = res.data as { data?: { id?: string } };
+  const id = d?.data?.id;
+  if (!id) throw new Error('User id not found in /2/users/me response');
+  return id;
 }
 
 async function likeTweet(input: LikeInput): Promise<ScriptResult> {
-  const { tweetUrl } = input;
-
-  if (!tweetUrl) {
-    return { success: false, message: 'Please provide a tweet URL' };
+  const tweetId =
+    input.tweetId ?? (input.tweetUrl ? extractIdFromUrl(input.tweetUrl) : null);
+  if (!tweetId) {
+    return { success: false, message: 'Provide tweetId or tweetUrl' };
   }
 
-  let context = null;
-  try {
-    context = await getBrowserContext();
-    const { page, success, error } = await navigateToTweet(context, tweetUrl);
+  const userId = await getUserId();
+  const res = await apiPost(`/2/users/${userId}/likes`, { tweet_id: tweetId });
 
-    if (!success) {
-      return { success: false, message: error || 'Navigation failed' };
+  if (res.status === 200) {
+    const d = res.data as { data?: { liked?: boolean } };
+    if (d?.data?.liked === false) {
+      return { success: true, message: `Tweet ${tweetId} was already liked` };
     }
-
-    const tweet = page.locator('article[data-testid="tweet"]').first();
-    const unlikeButton = tweet.locator('[data-testid="unlike"]');
-    const likeButton = tweet.locator('[data-testid="like"]');
-
-    // Check if already liked
-    const alreadyLiked = await unlikeButton.isVisible().catch(() => false);
-    if (alreadyLiked) {
-      return { success: true, message: 'Tweet already liked' };
-    }
-
-    await likeButton.waitFor({ timeout: config.timeouts.elementWait });
-    await likeButton.click();
-    await page.waitForTimeout(config.timeouts.afterClick);
-
-    // Verify
-    const nowLiked = await unlikeButton.isVisible().catch(() => false);
-    if (nowLiked) {
-      return { success: true, message: 'Like successful' };
-    }
-
-    return { success: false, message: 'Like action completed but could not verify success' };
-
-  } finally {
-    if (context) await context.close();
+    return { success: true, message: `Liked tweet ${tweetId}` };
   }
+
+  return {
+    success: false,
+    message: `Failed to like tweet (HTTP ${res.status}): ${extractError(res.data)}`,
+  };
 }
 
 runScript<LikeInput>(likeTweet);

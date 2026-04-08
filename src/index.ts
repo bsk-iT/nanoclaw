@@ -10,6 +10,7 @@ import {
   MAX_MESSAGES_PER_PROMPT,
   POLL_INTERVAL,
   TIMEZONE,
+  DATA_DIR,
 } from './config.js';
 import './channels/index.js';
 import {
@@ -42,6 +43,9 @@ import {
   setSession,
   storeChatMetadata,
   storeMessage,
+  getPendingApprovalByJid,
+  resolvePendingApproval,
+  expireStaleApprovals,
 } from './db.js';
 import { GroupQueue } from './group-queue.js';
 import { resolveGroupFolderPath } from './group-folder.js';
@@ -74,7 +78,6 @@ let messageLoopRunning = false;
 
 const channels: Channel[] = [];
 const queue = new GroupQueue();
-
 
 function loadState(): void {
   lastTimestamp = getRouterState('last_timestamp') || '';
@@ -630,6 +633,81 @@ async function main(): Promise<void> {
           return;
         }
       }
+
+      // Approval flow: intercept ok / edita: / cancela responses before storing
+      if (!msg.is_bot_message) {
+        const trimmedApproval = msg.content.trim();
+        const approvalMatch =
+          /^ok$/i.test(trimmedApproval) ||
+          /^cancela$/i.test(trimmedApproval) ||
+          /^edita:\s*/i.test(trimmedApproval);
+
+        if (approvalMatch) {
+          expireStaleApprovals();
+          const pending = getPendingApprovalByJid(chatJid);
+          if (pending) {
+            const channel = findChannel(channels, chatJid);
+            let finalContent = pending.content;
+            let approvalStatus: 'approved' | 'edited' | 'cancelled' =
+              'approved';
+
+            if (/^cancela$/i.test(trimmedApproval)) {
+              approvalStatus = 'cancelled';
+            } else if (/^edita:\s*/i.test(trimmedApproval)) {
+              finalContent = trimmedApproval.replace(/^edita:\s*/i, '').trim();
+              approvalStatus = 'edited';
+            }
+
+            resolvePendingApproval(
+              pending.request_id,
+              approvalStatus,
+              approvalStatus === 'edited' ? finalContent : undefined,
+            );
+
+            // Write result to x_results so the agent's waitForXResult resolves
+            const resultsDir = path.join(
+              DATA_DIR,
+              'ipc',
+              registeredGroups[chatJid]?.folder ?? '',
+              'x_results',
+            );
+            fs.mkdirSync(resultsDir, { recursive: true });
+            const result =
+              approvalStatus === 'cancelled'
+                ? { success: false, message: 'Post cancelado pelo usuário' }
+                : {
+                    success: true,
+                    message: 'Aprovado',
+                    approvedContent: finalContent,
+                  };
+            fs.writeFileSync(
+              path.join(resultsDir, `${pending.request_id}.json`),
+              JSON.stringify(result),
+            );
+
+            if (approvalStatus === 'cancelled') {
+              channel
+                ?.sendMessage(chatJid, '🚫 Post descartado.')
+                .catch(() => {});
+            } else {
+              // Trigger actual post via runScript — reuse host.ts runScript indirectly
+              // The agent will pick up the result and call x_post itself, OR we call it here.
+              // For simplicity, write the approved content and let the agent re-post.
+              channel
+                ?.sendMessage(chatJid, `✅ Post aprovado. Publicando...`)
+                .catch(() => {});
+            }
+
+            logger.info(
+              { requestId: pending.request_id, approvalStatus },
+              'Approval resolved',
+            );
+            // Do NOT store this message — it was a control command, not conversation
+            return;
+          }
+        }
+      }
+
       storeMessage(msg);
     },
     onChatMetadata: (

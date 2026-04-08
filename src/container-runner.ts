@@ -4,6 +4,7 @@
  */
 import { ChildProcess, spawn } from 'child_process';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 import {
@@ -157,6 +158,24 @@ function buildVolumeMounts(
     readonly: false,
   });
 
+  // Copy OpenCode auth.json from host into the group's config dir so the
+  // container can authenticate with GitHub Copilot without a separate login.
+  // We copy (not mount) to avoid permission conflicts — the container needs to
+  // create sibling dirs under .local/ which would fail with a read-only mount.
+  // XDG_DATA_HOME is passed as env var so OpenCode finds auth.json at:
+  // XDG_DATA_HOME/opencode/auth.json (the opencode/ subdir is auto-added by OpenCode)
+  const hostAuthJson = path.join(
+    os.homedir(),
+    '.local',
+    'share',
+    'opencode',
+    'auth.json',
+  );
+  if (fs.existsSync(hostAuthJson)) {
+    const destAuthJson = path.join(groupSessionsDir, 'opencode', 'auth.json');
+    fs.copyFileSync(hostAuthJson, destAuthJson);
+  }
+
   // Per-group IPC namespace: each group gets its own IPC directory
   // This prevents cross-group privilege escalation via IPC
   const groupIpcDir = resolveGroupIpcPath(group.folder);
@@ -244,6 +263,17 @@ async function buildContainerArgs(
   if (opencodeModel) {
     args.push('-e', `OPENCODE_MODEL=${opencodeModel}`);
   }
+
+  // Pass Firecrawl API key so the agent can use the firecrawl MCP server
+  const firecrawlKey = process.env.FIRECRAWL_API_KEY;
+  if (firecrawlKey) {
+    args.push('-e', `FIRECRAWL_API_KEY=${firecrawlKey}`);
+  }
+
+  // Tell OpenCode to look for auth.json in the mounted config dir
+  // (same dir as /home/node/.config/opencode, which is groupSessionsDir).
+  // This avoids needing a separate ~/.local/share/opencode mount.
+  args.push('-e', 'XDG_DATA_HOME=/home/node/.config/opencode');
 
   // Runtime-specific args for host gateway resolution
   args.push(...hostGatewayArgs());

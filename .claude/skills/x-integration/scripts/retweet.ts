@@ -1,62 +1,60 @@
 #!/usr/bin/env npx tsx
 /**
  * X Integration - Retweet
- * Usage: echo '{"tweetUrl":"https://x.com/user/status/123"}' | npx tsx retweet.ts
+ * Usage: echo '{"tweetId":"1234567890"}' | npx tsx retweet.ts
+ * Also accepts: echo '{"tweetUrl":"https://x.com/user/status/1234567890"}' | npx tsx retweet.ts
  */
 
-import { getBrowserContext, navigateToTweet, runScript, config, ScriptResult } from '../lib/browser.js';
+import { runScript, ScriptResult } from '../lib/browser.js';
+import { apiPost, apiGet, extractError } from '../lib/api.js';
 
 interface RetweetInput {
-  tweetUrl: string;
+  tweetId?: string;
+  tweetUrl?: string;
+}
+
+function extractIdFromUrl(url: string): string | null {
+  const m = url.match(/\/status\/(\d+)/);
+  return m ? m[1] : null;
+}
+
+async function getUserId(): Promise<string> {
+  const res = await apiGet('/2/users/me');
+  if (res.status !== 200)
+    throw new Error(`Could not fetch user id: ${extractError(res.data)}`);
+  const d = res.data as { data?: { id?: string } };
+  const id = d?.data?.id;
+  if (!id) throw new Error('User id not found in /2/users/me response');
+  return id;
 }
 
 async function retweet(input: RetweetInput): Promise<ScriptResult> {
-  const { tweetUrl } = input;
-
-  if (!tweetUrl) {
-    return { success: false, message: 'Please provide a tweet URL' };
+  const tweetId =
+    input.tweetId ?? (input.tweetUrl ? extractIdFromUrl(input.tweetUrl) : null);
+  if (!tweetId) {
+    return { success: false, message: 'Provide tweetId or tweetUrl' };
   }
 
-  let context = null;
-  try {
-    context = await getBrowserContext();
-    const { page, success, error } = await navigateToTweet(context, tweetUrl);
+  const userId = await getUserId();
+  const res = await apiPost(`/2/users/${userId}/retweets`, {
+    tweet_id: tweetId,
+  });
 
-    if (!success) {
-      return { success: false, message: error || 'Navigation failed' };
+  if (res.status === 200) {
+    const d = res.data as { data?: { retweeted?: boolean } };
+    if (d?.data?.retweeted === false) {
+      return {
+        success: true,
+        message: `Tweet ${tweetId} was already retweeted`,
+      };
     }
-
-    const tweet = page.locator('article[data-testid="tweet"]').first();
-    const unretweetButton = tweet.locator('[data-testid="unretweet"]');
-    const retweetButton = tweet.locator('[data-testid="retweet"]');
-
-    // Check if already retweeted
-    const alreadyRetweeted = await unretweetButton.isVisible().catch(() => false);
-    if (alreadyRetweeted) {
-      return { success: true, message: 'Tweet already retweeted' };
-    }
-
-    await retweetButton.waitFor({ timeout: config.timeouts.elementWait });
-    await retweetButton.click();
-    await page.waitForTimeout(config.timeouts.afterClick);
-
-    // Click retweet confirm option
-    const retweetConfirm = page.locator('[data-testid="retweetConfirm"]');
-    await retweetConfirm.waitFor({ timeout: config.timeouts.elementWait });
-    await retweetConfirm.click();
-    await page.waitForTimeout(config.timeouts.afterClick * 2);
-
-    // Verify
-    const nowRetweeted = await unretweetButton.isVisible().catch(() => false);
-    if (nowRetweeted) {
-      return { success: true, message: 'Retweet successful' };
-    }
-
-    return { success: false, message: 'Retweet action completed but could not verify success' };
-
-  } finally {
-    if (context) await context.close();
+    return { success: true, message: `Retweeted tweet ${tweetId}` };
   }
+
+  return {
+    success: false,
+    message: `Failed to retweet (HTTP ${res.status}): ${extractError(res.data)}`,
+  };
 }
 
 runScript<RetweetInput>(retweet);

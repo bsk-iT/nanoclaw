@@ -33,19 +33,22 @@ ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium
 
 # Install agent-browser and opencode globally
 # opencode replaces @anthropic-ai/claude-code — uses GitHub Copilot as backend
-RUN npm install -g agent-browser opencode@latest
+RUN npm install -g agent-browser opencode-ai@latest
 
 # Create app directory
 WORKDIR /app
 
 # Copy package files first for better caching
-COPY agent-runner/package*.json ./
+COPY container/agent-runner/package*.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy source code
-COPY agent-runner/ ./
+COPY container/agent-runner/ ./
+
+# Copy container skills (persona.md, etc.)
+COPY container/skills/ ./skills/
 
 # Build TypeScript
 RUN npm run build

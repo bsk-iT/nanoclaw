@@ -82,6 +82,14 @@ function createSchema(database: Database.Database): void {
       container_config TEXT,
       requires_trigger INTEGER DEFAULT 1
     );
+    CREATE TABLE IF NOT EXISTS pending_approvals (
+      request_id TEXT PRIMARY KEY,
+      chat_jid TEXT NOT NULL,
+      content TEXT NOT NULL,
+      status TEXT DEFAULT 'pending',
+      created_at TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
   `);
 
   // Add context_mode column if it doesn't exist (migration for existing DBs)
@@ -749,4 +757,82 @@ function migrateJsonState(): void {
       }
     }
   }
+}
+
+// ─── Pending Approvals ────────────────────────────────────────────────────────
+
+export type ApprovalStatus =
+  | 'pending'
+  | 'approved'
+  | 'edited'
+  | 'cancelled'
+  | 'expired';
+
+export interface PendingApproval {
+  request_id: string;
+  chat_jid: string;
+  content: string;
+  status: ApprovalStatus;
+  created_at: string;
+  expires_at: string;
+}
+
+export function createPendingApproval(
+  requestId: string,
+  chatJid: string,
+  content: string,
+  ttlMs = 30 * 60 * 1000,
+): void {
+  const now = new Date();
+  const expires = new Date(now.getTime() + ttlMs);
+  db.prepare(
+    `INSERT OR REPLACE INTO pending_approvals
+       (request_id, chat_jid, content, status, created_at, expires_at)
+     VALUES (?, ?, ?, 'pending', ?, ?)`,
+  ).run(requestId, chatJid, content, now.toISOString(), expires.toISOString());
+}
+
+export function getPendingApproval(
+  requestId: string,
+): PendingApproval | undefined {
+  return db
+    .prepare(`SELECT * FROM pending_approvals WHERE request_id = ?`)
+    .get(requestId) as PendingApproval | undefined;
+}
+
+export function getPendingApprovalByJid(
+  chatJid: string,
+): PendingApproval | undefined {
+  return db
+    .prepare(
+      `SELECT * FROM pending_approvals
+       WHERE chat_jid = ? AND status = 'pending'
+       ORDER BY created_at DESC LIMIT 1`,
+    )
+    .get(chatJid) as PendingApproval | undefined;
+}
+
+export function resolvePendingApproval(
+  requestId: string,
+  status: Exclude<ApprovalStatus, 'pending'>,
+  editedContent?: string,
+): boolean {
+  const info = db
+    .prepare(
+      `UPDATE pending_approvals
+       SET status = ?, content = COALESCE(?, content)
+       WHERE request_id = ? AND status = 'pending'`,
+    )
+    .run(status, editedContent ?? null, requestId);
+  return info.changes > 0;
+}
+
+export function expireStaleApprovals(): number {
+  const info = db
+    .prepare(
+      `UPDATE pending_approvals SET status = 'expired'
+       WHERE status = 'pending' AND expires_at < ?`,
+    )
+    .run(new Date().toISOString());
+  return info.changes;
 }

@@ -4,63 +4,33 @@
  * Usage: echo '{"content":"Hello world"}' | npx tsx post.ts
  */
 
-import { getBrowserContext, runScript, validateContent, config, ScriptResult } from '../lib/browser.js';
+import { runScript, validateContent, ScriptResult } from '../lib/browser.js';
+import { apiPost, extractError } from '../lib/api.js';
 
 interface PostInput {
   content: string;
 }
 
 async function postTweet(input: PostInput): Promise<ScriptResult> {
-  const { content } = input;
-
-  const validationError = validateContent(content, 'Tweet');
+  const validationError = validateContent(input.content, 'Tweet');
   if (validationError) return validationError;
 
-  let context = null;
-  try {
-    context = await getBrowserContext();
-    const page = context.pages()[0] || await context.newPage();
+  const res = await apiPost('/2/tweets', { text: input.content });
 
-    await page.goto('https://x.com/home', { timeout: config.timeouts.navigation, waitUntil: 'domcontentloaded' });
-    await page.waitForTimeout(config.timeouts.pageLoad);
-
-    // Check if logged in
-    const isLoggedIn = await page.locator('[data-testid="SideNav_AccountSwitcher_Button"]').isVisible().catch(() => false);
-    if (!isLoggedIn) {
-      const onLoginPage = await page.locator('input[autocomplete="username"]').isVisible().catch(() => false);
-      if (onLoginPage) {
-        return { success: false, message: 'X login expired. Run /x-integration to re-authenticate.' };
-      }
-    }
-
-    // Find and fill tweet input
-    const tweetInput = page.locator('[data-testid="tweetTextarea_0"]');
-    await tweetInput.waitFor({ timeout: config.timeouts.elementWait * 2 });
-    await tweetInput.click();
-    await page.waitForTimeout(config.timeouts.afterClick / 2);
-    await tweetInput.fill(content);
-    await page.waitForTimeout(config.timeouts.afterFill);
-
-    // Click post button
-    const postButton = page.locator('[data-testid="tweetButtonInline"]');
-    await postButton.waitFor({ timeout: config.timeouts.elementWait });
-
-    const isDisabled = await postButton.getAttribute('aria-disabled');
-    if (isDisabled === 'true') {
-      return { success: false, message: 'Post button disabled. Content may be empty or exceed character limit.' };
-    }
-
-    await postButton.click();
-    await page.waitForTimeout(config.timeouts.afterSubmit);
-
+  if (res.status === 201) {
+    const d = res.data as { data?: { id?: string } };
+    const id = d?.data?.id ?? 'unknown';
     return {
       success: true,
-      message: `Tweet posted: ${content.slice(0, 50)}${content.length > 50 ? '...' : ''}`
+      message: `Tweet posted (id: ${id}): ${input.content.slice(0, 50)}${input.content.length > 50 ? '...' : ''}`,
+      data: { tweetId: id },
     };
-
-  } finally {
-    if (context) await context.close();
   }
+
+  return {
+    success: false,
+    message: `Failed to post tweet (HTTP ${res.status}): ${extractError(res.data)}`,
+  };
 }
 
 runScript<PostInput>(postTweet);
