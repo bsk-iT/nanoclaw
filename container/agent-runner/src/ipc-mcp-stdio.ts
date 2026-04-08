@@ -594,19 +594,17 @@ Only use this tool for scheduled/automated posts. For direct user-requested post
       timestamp: new Date().toISOString(),
     });
 
-    // Wait up to 31 minutes (host timeout is 30min)
-    const result = await waitForXResult(requestId, 31 * 60 * 1000);
-    if (!result.success) {
-      return {
-        content: [{ type: 'text' as const, text: result.message }],
-        isError: true,
-      };
-    }
-    const approvedText = result.approvedContent
-      ? `Aprovado. Conteúdo final para publicar:\n\n${result.approvedContent}`
-      : result.message;
+    // Return immediately — do NOT block waiting for user approval.
+    // The host (src/index.ts) handles the ok/edita:/cancela flow and posts
+    // to X directly when approved. Blocking here would hit the MCP request
+    // timeout (~60s) long before the user has a chance to respond (30min window).
     return {
-      content: [{ type: 'text' as const, text: approvedText }],
+      content: [
+        {
+          type: 'text' as const,
+          text: `Post enviado para aprovação no Telegram (requestId: ${requestId}). Aguardando resposta do usuário ("ok", "edita: ...", ou "cancela"). O post será publicado automaticamente quando aprovado.`,
+        },
+      ],
     };
   },
 );

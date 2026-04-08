@@ -10,7 +10,27 @@ const envConfig = readEnvFile([
   'ASSISTANT_HAS_OWN_NUMBER',
   'GITHUB_TOKEN',
   'TZ',
+  // X/Twitter credentials — needed by host-side scripts (x-integration/host.ts → scripts/)
+  'X_API_KEY',
+  'X_API_SECRET',
+  'X_ACCESS_TOKEN',
+  'X_ACCESS_TOKEN_SECRET',
 ]);
+
+// Inject X credentials into process.env so child processes spawned by the host
+// (e.g. x-integration scripts via spawn/npx tsx) can read them via process.env.
+// env.ts intentionally does NOT do this globally to avoid leaking secrets into
+// arbitrary children — but X scripts require these vars and are trusted subprocesses.
+for (const key of [
+  'X_API_KEY',
+  'X_API_SECRET',
+  'X_ACCESS_TOKEN',
+  'X_ACCESS_TOKEN_SECRET',
+] as const) {
+  if (!process.env[key] && envConfig[key]) {
+    process.env[key] = envConfig[key];
+  }
+}
 
 export const ASSISTANT_NAME =
   process.env.ASSISTANT_NAME || envConfig.ASSISTANT_NAME || 'Andy';

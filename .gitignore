@@ -44,6 +44,10 @@ nanoclaw.db
 .idea/
 .vscode/
 
+# Local agent instructions (per-installation, not shared)
+AGENTS.md
+CLAUDE.md
+
 # Skills system (local per-installation state)
 .nanoclaw/
 
