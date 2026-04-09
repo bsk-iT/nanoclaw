@@ -186,9 +186,9 @@ async function runTask(
         deps.onProcess(task.chat_jid, proc, containerName, task.group_folder),
       async (streamedOutput: ContainerOutput) => {
         if (streamedOutput.result) {
+          // Suppress raw agent output for scheduled tasks — confirmation is
+          // sent after the container finishes (see below).
           result = streamedOutput.result;
-          // Forward result to user (sendMessage handles formatting)
-          await deps.sendMessage(task.chat_jid, streamedOutput.result);
           scheduleClose();
         }
         if (streamedOutput.status === 'success') {
@@ -206,7 +206,6 @@ async function runTask(
     if (output.status === 'error') {
       error = output.error || 'Unknown error';
     } else if (output.result) {
-      // Result was already forwarded to the user via the streaming callback above
       result = output.result;
     }
 
@@ -221,6 +220,21 @@ async function runTask(
   }
 
   const durationMs = Date.now() - startTime;
+
+  // Send a single confirmation line to the user instead of raw agent output.
+  // This keeps the chat clean while still providing visibility on task execution.
+  const durationSec = (durationMs / 1000).toFixed(1);
+  if (error) {
+    await deps.sendMessage(
+      task.chat_jid,
+      `❌ *${task.id}* falhou em ${durationSec}s\n${error.slice(0, 200)}`,
+    );
+  } else {
+    await deps.sendMessage(
+      task.chat_jid,
+      `✅ *${task.id}* concluída em ${durationSec}s`,
+    );
+  }
 
   logTaskRun({
     task_id: task.id,
