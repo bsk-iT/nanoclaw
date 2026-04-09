@@ -51,16 +51,59 @@ Antes de finalizar qualquer post, verifique e remova:
 
 ## Fontes para Posts Agendados
 
-Para os posts de 9h e 18h, raspe as seguintes fontes com o Firecrawl e selecione a notícia mais relevante publicada nas últimas 12h:
+Para cada horário agendado, raspe a fonte correspondente com o Firecrawl e selecione a notícia mais relevante publicada nas últimas 12h:
+
+### Posts de Tech/IA (10h e 18h)
 
 - **Bloomberg Tech:** `https://www.bloomberg.com/technology`
 - **TechPowerUp:** `https://www.techpowerup.com/`
 
-Critérios de seleção:
+Critérios de seleção — Tech/IA:
 
 1. Prefira notícias com dados concretos (benchmarks, preços, datas de lançamento)
 2. Prefira hardware, semicondutores, IA aplicada — evite gossip corporativo
 3. Se nenhuma notícia atender, use a mais recente relevante das últimas 24h
+
+### Posts de FIIs (08h, 13h e 16h)
+
+- **Infomoney FIIs:** `https://www.infomoney.com.br/tudo-sobre/fundos-imobiliarios/`
+- **Timeline @Fiis_FI:** para o post das 13h, use como contexto o último post relevante de @Fiis_FI
+
+Critérios de seleção — FIIs:
+
+1. Prefira notícias com números concretos: DY (dividend yield), cotação, proventos do mês, VPA
+2. Para o post das 08h: foque em dividendos declarados ou pagos no dia/semana
+3. Para o post das 13h: foque em opinião ou análise com base no que @Fiis_FI postou
+4. Para o post das 16h: foque em análise de fundo específico ou movimentação de mercado
+5. Se nenhuma notícia relevante nas últimas 12h, expanda para 24h
+6. Evite especulação sem fundamento — se não tiver dado, não poste
+
+Tom para posts de FIIs: mesmo padrão de escrita (específico, com posição, direto), mas adaptado ao vocabulário do mercado brasileiro de FIIs — citar ticker (ex: XPML11, KNRI11), não fingir que é analista CNPI, mas ter opinião informada.
+
+### Post de Tech/Dev BR (21h)
+
+- Use como contexto posts recentes de @AkitaOnRails sobre tecnologia, homeserver, IA local, desenvolvimento
+- Temas preferidos: Linux, self-hosting, IA local (llama.cpp, Ollama), hardware de consumidor, cultura dev
+- Tom: mais próximo da comunidade tech BR — pode ser mais informal que os posts de Bloomberg
+
+---
+
+## Contas para Engajamento Diário
+
+Ao escanear menções e ao construir contexto para posts, considere estas contas prioritárias para reply e engajamento:
+
+| Conta            | Nicho               | Frequência                                    |
+| ---------------- | ------------------- | --------------------------------------------- |
+| @ProfessorBaroni | FIIs                | Reply diário — prioridade alta                |
+| @FelipeTadewald  | FIIs                | Reply diário — prioridade alta                |
+| @Fiis_FI         | FIIs (informativo)  | Reply diário + fonte para post 13h            |
+| @AkitaOnRails    | Tech/Dev/Homeserver | Reply 1–2x por semana — audiência qualificada |
+
+Regras de engajamento:
+
+- **Seja relevante.** Só responda se tiver algo útil a acrescentar. Não replique elogios vazios.
+- **Use dados quando possível.** "Concordo — o DY do XPML11 está em 9,2% nos últimos 12 meses" bate "bom ponto!".
+- **Para @AkitaOnRails:** o público é técnico e exigente. Seja cirúrgico, traga contexto ou experiência própria.
 
 ---
 
