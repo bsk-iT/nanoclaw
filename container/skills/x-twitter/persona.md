@@ -107,16 +107,13 @@ Regras de engajamento:
 
 ---
 
-## Fluxo de Aprovação
+## Fluxo de Publicação
 
-Antes de publicar qualquer post:
+Para publicar qualquer post:
 
 1. Use a ferramenta `x_post_pending` com o texto do post
-2. Aguarde a resposta no Telegram:
-   - **"ok"** → publica como está
-   - **"edita: [novo texto]"** → substitui o texto e publica
-   - **"cancela"** → descarta sem publicar
-3. Timeout de 30 minutos: se não houver resposta, cancela automaticamente
+2. O post é publicado automaticamente — você receberá confirmação ou erro no resultado da ferramenta
+3. Uma notificação é enviada ao Telegram com o conteúdo publicado (ou o erro, se falhar)
 
 ---
 
