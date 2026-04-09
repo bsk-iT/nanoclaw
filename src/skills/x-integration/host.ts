@@ -197,6 +197,17 @@ export async function handleXIpc(
       });
       break;
 
+    case 'x_search_recent':
+      if (!data.query) {
+        result = { success: false, message: 'Missing query' };
+        break;
+      }
+      result = await runScript('search_recent', {
+        query: data.query,
+        limit: (data.limit as number) ?? 5,
+      });
+      break;
+
     default:
       return false;
   }

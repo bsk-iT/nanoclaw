@@ -847,6 +847,72 @@ server.tool(
   },
 );
 
+server.tool(
+  'x_search_recent',
+  `Search recent tweets on X (Twitter) using a query string. Main group only.
+
+Use this for proactive engagement: search posts from specific accounts or topics,
+then use x_like and x_reply to engage with relevant content.
+
+Examples:
+- Search posts from a specific account: query = "from:@Adrenaline"
+- Search by topic: query = "FIIs dividendos"
+- Combined: query = "from:@ProfessorBaroni FII"
+
+Returns a list of recent tweets matching the query.`,
+  {
+    query: z
+      .string()
+      .describe(
+        'Twitter search query (e.g., "from:@Adrenaline", "FIIs dividendos", "from:@AkitaOnRails")',
+      ),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .describe('Max number of tweets to return (default: 5)'),
+  },
+  async (args) => {
+    if (!isMain) {
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: 'Only the main group can use X integration.',
+          },
+        ],
+        isError: true,
+      };
+    }
+    const requestId = `xsearch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    writeIpcFile(TASKS_DIR, {
+      type: 'x_search_recent',
+      requestId,
+      query: args.query,
+      limit: args.limit ?? 5,
+      groupFolder,
+      timestamp: new Date().toISOString(),
+    });
+    const result = await waitForXResult(requestId);
+    if (!result.success) {
+      return {
+        content: [{ type: 'text' as const, text: result.message }],
+        isError: true,
+      };
+    }
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify(result.data ?? { tweets: [] }, null, 2),
+        },
+      ],
+    };
+  },
+);
+
 // Start the stdio transport
 const transport = new StdioServerTransport();
 await server.connect(transport);
