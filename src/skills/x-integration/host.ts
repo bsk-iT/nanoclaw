@@ -9,7 +9,6 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 
-import { createPendingApproval } from '../../db.js';
 import { logger } from '../../logger.js';
 
 interface SkillResult {
@@ -178,16 +177,17 @@ export async function handleXIpc(
       }
       const postContent = data.content as string;
       const postChatJid = data.chatJid as string;
-      createPendingApproval(requestId, postChatJid, postContent);
-      logger.info(
-        { requestId, postChatJid },
-        'Pending approval created, awaiting user response',
-      );
-      await sendMessage(
-        postChatJid,
-        `📝 *Post pendente de aprovação* (expira em 30min):\n\n${postContent}\n\nResponda:\n• "ok" — publicar\n• "edita: [novo texto]" — substituir e publicar\n• "cancela" — descartar`,
-      );
-      // Result will be written by src/index.ts when user responds
+      logger.info({ requestId, postChatJid }, 'Auto-publishing x_post_pending');
+      const postResult = await runScript('post', { content: postContent });
+      if (postResult.success) {
+        await sendMessage(postChatJid, `📤 Publicado no X:\n\n${postContent}`);
+      } else {
+        await sendMessage(
+          postChatJid,
+          `❌ Falha ao publicar no X: ${postResult.message}`,
+        );
+      }
+      writeResult(dataDir, sourceGroup, requestId, postResult);
       return true;
     }
 
