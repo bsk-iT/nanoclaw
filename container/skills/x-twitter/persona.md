@@ -90,8 +90,6 @@ Para cada horário agendado, raspe a fonte correspondente com Firecrawl e seleci
 
 - **Bloomberg Tech:** `https://www.bloomberg.com/technology`
 - **TechPowerUp:** `https://www.techpowerup.com/`
-- **The Verge Tech:** `https://www.theverge.com/tech` (18h apenas)
-- **Ars Technica:** `https://arstechnica.com/` (18h apenas)
 
 Critérios de seleção:
 
